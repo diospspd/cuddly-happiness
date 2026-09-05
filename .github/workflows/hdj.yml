@@ -37,9 +37,40 @@ jobs:
           # Задаем имя файла на основе региона
           FILE_NAME="${LOCATION}.txt"
           
-          # 2. Собираем данные процессора
-          CPU_NAME=$(awk -F': ' '/model name/ {print $2; exit}' /proc/cpuinfo)
-          CPU_FLAGS=$(awk -F': ' '/flags/ {print $2; exit}' /proc/cpuinfo)
+          # 2. Собираем данные процессора (Кроссплатформенный вариант x86_64 + ARM)
+          
+          # Попытка 1: Ищем "model name" (стандарт для x86_64)
+          CPU_NAME=$(awk -F':' '/^model name/ {print $2; exit}' /proc/cpuinfo | xargs)
+          
+          # Попытка 2: Если пусто, пробуем достать через lscpu
+          if [[ -z "$CPU_NAME" ]]; then
+            CPU_NAME=$(lscpu | grep -i "^model name" | cut -d':' -f2 | xargs)
+          fi
+          
+          # Попытка 3: Специфика ARM серверов (например, Azure Ampere), берем Vendor и Part
+          if [[ -z "$CPU_NAME" ]]; then
+            IMP=$(awk -F':' '/^CPU implementer/ {print $2; exit}' /proc/cpuinfo | xargs)
+            PART=$(awk -F':' '/^CPU part/ {print $2; exit}' /proc/cpuinfo | xargs)
+            if [[ -n "$IMP" ]]; then
+              CPU_NAME="ARM Implementer $IMP Part $PART"
+            fi
+          fi
+          
+          # Попытка 4: Заглушка, если ничего не найдено
+          if [[ -z "$CPU_NAME" ]]; then
+            CPU_NAME="Unknown_$(uname -m)_CPU"
+          fi
+          
+          # Собираем инструкции: x86_64 использует 'flags', ARM использует 'Features'
+          CPU_FLAGS=$(awk -F':' '/^flags/ {print $2; exit}' /proc/cpuinfo | xargs)
+          if [[ -z "$CPU_FLAGS" ]]; then
+            CPU_FLAGS=$(awk -F':' '/^Features/ {print $2; exit}' /proc/cpuinfo | xargs)
+          fi
+          
+          # Защита от пустых флагов
+          if [[ -z "$CPU_FLAGS" ]]; then
+            CPU_FLAGS="No_Flags_Detected"
+          fi
           
           # Формируем строку
           NEW_ENTRY="$CPU_NAME $CPU_FLAGS"
